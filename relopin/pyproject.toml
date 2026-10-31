@@ -1,0 +1,26 @@
+[project]
+name = "relopin"
+version = "0.1.0"
+description = "Polymorphic Android app-protection toolkit — zero third-party deps (stdlib only), external: apktool + a dex/smali backend."
+requires-python = ">=3.9"
+
+[project.scripts]
+relopin = "relopin.cli:main"
+
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+# إصلاح: بدون هذا، setuptools (الحديث) يرفض البناء تمامًا برسالة
+# "Multiple top-level packages discovered in a flat-layout: ['relopin', 'rust_core', 'templates']"
+# لأن المستودع يحوي مجلدات أخرى بجانب حزمة بايثون (rust_core, dist, tests...). تحديد الحزمة
+# صراحة يزيل الالتباس. (كان هذا يعني أن `pip install -e .` نفسه — الموثَّق في هذا الملف —
+# يفشل بالكامل قبل هذا الإصلاح، وليس فقط مشكلة تغليف للتوزيع.)
+[tool.setuptools]
+packages = ["relopin", "relopin.templates"]
+
+# القالب templates/RelopinRuntime.smali.tpl انتقل إلى relopin/templates/ (داخل الحزمة نفسها)
+# ليُضمَّن فعليًا في أي wheel/sdist يُبنى ويُنصَّب — كان سابقًا خارج شجرة الحزمة فيختفي من أي
+# تنصيب غير "from source checkout"، مما يُسبب FileNotFoundError وقت التشغيل لأي مستخدم آخر.
+[tool.setuptools.package-data]
+relopin = ["templates/*.tpl"]
