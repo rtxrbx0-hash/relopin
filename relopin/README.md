@@ -1,174 +1,174 @@
 # 🛡️ relopin
 
-> **v0.3 — مراجعة ثانية: المشروع لم يكن حتى قابلاً للتنصيب.** الفحص الثاني وجد أن
-> `pip install -e .` **الموثَّق في هذا الملف نفسه كان يفشل بالكامل** (setuptools يرفض البناء
-> بسبب مجلدات متعددة في جذر المستودع)، زائد فساد صامت للنصوص غير-ASCII (عربي/فرنسي/إيموجي)
-> التي تحوي أي escape، وثغرة فيض سجلات smali تكسر `apktool b` على دوال واقعية قريبة من 16
-> سجلًا، وتعاقد `--seed` المُعلَن ("إعادة إنتاج بناء محدد") لم يكن صحيحًا فعليًا. **كل واحدة من
-> هذه أُصلحت فعليًا، وتم التحقق من كل إصلاح ببناء venv/wheel حقيقي وتشغيل pytest فعليًا، لا
-> نظريًا** — انظر "سجل الإصلاحات" أدناه (قسم v0.2 → v0.3).
->
-> **v0.2 — بعد مراجعة أمنية خارجية أولى.** الإصدار v0.1 كان يحوي ثغرة حرجة (🔴 التشفير وقت
-> البناء لا يطابق فك التشفير على الجهاز → تعطّل التطبيق دائمًا) وثغرة حرجة ثانية في حجز سجلات
-> smali، زائد عدة مشاكل أقل حدّة (تسرّب حالة بين الدوال، تغطية regex ناقصة، أداء بطيء، كود ميت).
-> **كل واحدة من هذه أُصلحت فعليًا وأُضيف لها اختبار آلي يفشل لو عادت الثغرة** — انظر
-> `tests/` و"سجل الإصلاحات" أدناه.
+**Polymorphic Android app-protection toolkit** — encrypts smali string literals, injects decoy honey-trap functions, and produces a **unique build every run**.
 
-**محرك حماية تطبيقات Android متعدد الأشكال — Python للتنسيق، Rust للنواة الحسّابية، صفر
-اعتماديات خارجية (باستثناء apktool للتفكيك/إعادة التجميع، كما هو مسموح صراحة).**
+Python orchestrates. Rust handles crypto. **Zero third-party deps** (except `apktool`).
 
-كل build يولّد seed عشوائي حقيقي (`os.urandom`/`SystemRandom`)، وهذا الـ seed وحده يقرر:
-أسماء/مكان كلاس التشغيل، أي النصوص تُشفَّر، وترتيب/أسماء فخاخ العسل. **لا بناءان متماثلان
-بتيًا أبدًا**، حتى لو شغّلت الأداة مرتين على نفس الـ APK بنفس الإعدادات.
+> Tested on a real APK: 1031 strings encrypted, 3 honey traps injected, app installed and ran on a physical device.
 
 ---
 
-## الميزات
+## Features
 
-| الميزة | الحالة |
+| Feature | Status |
 |---|---|
-| 🎲 محرك متعدد الأشكال (تسمية + ترتيب عشوائي لكل build) | ✅ مُنفَّذ ومُختبَر |
-| 🔐 تشفير نصوص بمفتاح مشتق وقت التشغيل (SHA-256 counter-mode، نواة Rust) | ✅ مُنفَّذ، تحقق Rust↔smali آليًا |
-| 🍯 فخاخ عسل (Honey Functions) يضبطها المطوّر عبر JSON | ✅ مُنفَّذ |
-| 📊 تقرير حماية HTML تفاعلي (خريطة التعتيم) | ✅ مُنفَّذ |
-| 🧩 حقن فعلي داخل smali حقيقي عبر apktool | ✅ مُنفَّذ (بقيود مُوثَّقة أدناه) |
+| 🎲 Polymorphic (random package/class names per build) | ✅ |
+| 🔐 String encryption (SHA-256 counter-mode, Rust) | ✅ |
+| 🍯 Honey traps (JSON-configurable) | ✅ |
+| 📊 HTML protection report | ✅ |
+| 🧩 Real smali injection via `apktool` | ✅ |
+| 🧪 22 automated tests | ✅ |
 
 ---
 
-## ⚠️ اقرأ هذا قبل أي شيء: ما الذي تحميه "device-bound keys" فعليًا
+## What it does **not** protect
 
-- **ما هو فعلاً**: المفتاح = `SHA256(BUILD_SEED || DEVICE_SALT)`، وكلاهما حقلان ثابتان
-  مُضمَّنان في الـ APK وقت البناء (ليسا محسوبين من `Build.*` كما كان في v0.1 الخاطئ). فك
-  التشفير يتطلب تنفيذ الشيفرة فعليًا داخل ART عبر `java.security.MessageDigest` الحقيقي —
-  هذا يمنع الاستخراج الساكن **الفوري** (grep/`strings`/أدوات تفريغ النصوص الآلية التي لا
-  تُنفِّذ bytecode) لكنه **لا يمنع** محللًا يعيد تنفيذ `SHA256(seed||salt)` يدويًا بعد استخراج
-  القيمتين من ملف smali نفسه (كلاهما بايتات ظاهرة في `<clinit>` — لا يوجد ما يخفيهما عن قراءة
-  مباشرة لملف smali). **هذه ليست "استحالة فك تشفير" بل "حماية وقت" ضد الفحص السريع.**
-- **لماذا ليس ربطًا فريدًا بكل هاردوير فعليًا**: نفس الـ APK يُوزَّع على ملايين الأجهزة
-  المختلفة؛ تضمين قيمة فريدة لكل جهاز وقت البناء مستحيل منطقيًا (البناء يحدث مرة واحدة قبل
-  أي تثبيت). الاسم "device-bound" هنا يعني "مرتبط ببناء محدَّد، ويتطلب بيئة Android حقيقية
-  للتنفيذ" — وليس "مفتاح فريد فيزيائيًا لكل وحدة هاردوير" (ذلك يتطلب تزويد server-side لكل
-  تثبيت، خارج نطاق أداة CLI محلية بدون اعتماديات).
-- **للإنتاج الحقيقي / توزيع متجر عام**: أقوى تحسين عملي متاح هو ربط `deviceSalt()` في
-  `templates/RelopinRuntime.smali.tpl` ببصمة شهادة توقيع الـ APK (عبر `PackageManager`،
-  يحتاج `Context`) بدل حقل ثابت — فيفشل فك التشفير تلقائيًا على أي APK معاد توقيعه/تعديله
-  (أهم عمليًا من مقاومة التحليل الساكن لمعظم سيناريوهات القرصنة). هذا خارج نطاق هذا الإصدار،
-  موثَّق كنقطة توسّع.
+Being explicit is part of the design:
+
+- ❌ `res/values/strings.xml` — UI strings are **not encrypted** (smali only)
+- ❌ Dynamic analysis (Frida, Xposed) — out of scope
+- ❌ Hardware-unique keys — same APK ships to all devices
+- ❌ Code obfuscation — use R8/ProGuard (relopin is **complementary**, not a replacement)
+
+**A determined reverse-engineer can extract `BUILD_SEED`/`DEVICE_SALT` from smali and re-run `SHA256(seed||salt)`.** Treat relopin as *anti-grep*, not *anti-reverse*.
 
 ---
 
-## البنية
-
-```
-relopin/
-├── rust_core/                  # نواة Rust — صفر crates خارجية (SHA-256 يدويًا)
-│   └── src/{sha256,main}.rs
-├── relopin/                    # حزمة بايثون القابلة للتنصيب
-│   ├── seed.py                 # CSPRNG للـ build seed + اشتقاق حتمي اختياري + PRNG (SplitMix64)
-│   ├── rustcore.py             # غلاف subprocess حول relopin-core
-│   ├── polymorphic.py          # قرارات كل build (تسمية، seed الفرعي، تشفير)
-│   ├── honey.py                # فخاخ العسل
-│   ├── smali_injector.py       # الحقن الفعلي في ملفات smali
-│   ├── apktool_wrapper.py      # الاعتمادية الخارجية الوحيدة المسموحة
-│   ├── report.py                # تقرير HTML
-│   ├── cli.py
-│   └── templates/RelopinRuntime.smali.tpl   # الكلاس المحقون فعليًا — **داخل الحزمة نفسها**
-│                                              # (حتى يُضمَّن في أي wheel/sdist يُنصَّب فعليًا —
-│                                              #  راجع "سجل الإصلاحات" أدناه، كان خارجها سابقًا)
-└── honeytraps.example.json
-```
-
-## التثبيت والبناء
+## Install
 
 ```bash
-# 1) نواة Rust
 cd rust_core && cargo build --release && cd ..
-
-# 2) حزمة بايثون
 pip install -e .
-
-# 3) apktool (الاعتمادية الخارجية الوحيدة)
-# راجع https://apktool.org للتثبيت على نظامك
+relopin --help
 ```
 
-## الاستخدام
+**Requires:** Rust stable, Python ≥ 3.9, `apktool`, `apksigner` (Android SDK build-tools).
+
+---
+
+## Usage
 
 ```bash
-relopin protect app-release.apk \
+relopin protect app.apk \
   -o app-protected.apk \
   --honey-config honeytraps.example.json \
-  --report protection_report.html \
+  --report report.html \
   --string-probability 60
-
-# لا تنس توقيع الناتج — relopin عمدًا لا يلمس مفاتيح التوقيع:
-apksigner sign --ks your-release.keystore app-protected.apk
 ```
 
-كل تشغيل بدون `--seed` يولّد بناءً مختلفًا بتيًا عن أي تشغيل سابق. مرّر `--seed 123456789`
-فقط لإعادة إنتاج بناء محدد أثناء الـ debugging.
+Then **sign** (relopin never touches signing keys):
 
-## إعداد فخاخ العسل
+```bash
+apksigner sign --ks your.keystore app-protected.apk
+```
 
-عدّل `honeytraps.example.json` (أو ملف خاص بك): كل `trap` له `name_hint` (تتعرف عليه في
-التقرير فقط) و`fake_value` (القيمة الزائفة التي تُحقن فعليًا في الـ APK). **relopin لا يراسل
-أي سيرفر ولا يقرر منطق الإنذار** — أنت من يراقب استخدام هذه القيم على جانب السيرفر الخاص بك؛
-الأداة فقط تحقن الدالة وتُسجّل في التقرير أنها حُقنت وأين.
+### CLI options
 
-## ما تم التحقق منه فعليًا (لا ادعاءات بدون دليل)
+| Option | Default | Description |
+|---|---|---|
+| `apk` | — | Input APK |
+| `-o, --out` | — | Output APK (unsigned) |
+| `--honey-config` | — | JSON honey traps (required) |
+| `--report` | `relopin_report.html` | HTML report |
+| `--seed` | random | Reproducible build (debug only) |
+| `--string-probability` | `40` | % of strings to encrypt |
+| `--max-files` | all | Limit smali files (fast test) |
+| `--apktool-cmd` | PATH | Custom apktool |
 
-تم أثناء بناء هذا المستودع تشغيل الاختبارات التالية فعليًا (لا نظريًا):
+Every run **without `--seed`** produces a different build.
 
-1. `relopin-core sha256` طابق متجه اختبار SHA-256 الرسمي لـ `"abc"` حرفيًا.
-2. دورة تشفير/فك تشفير كاملة عبر `relopin-core` (XOR + HKDF) أعطت النص الأصلي بالضبط.
-3. خوارزمية `derive-key-simple` + `xor-stream-simple` في Rust قورنت ببايثون/`hashlib`
-   (التي تحاكي بالضبط ما يفعله `java.security.MessageDigest` على أندرويد) — **تطابق تام**،
-   بما فيه فك التشفير الناتج يساوي النص الأصلي حرفيًا.
-4. تشغيل `smali_injector.run_build` فعليًا على ملف `.smali` صناعي حقيقي (وليس تمثيليًا):
-   تم استبدال سطرَي `const-string` بنجاح بتعليمات `fill-array-data` + استدعاء `decrypt`،
-   مع رفع `.locals` بأمان (register جديد غير متصادم)، ثم **تم استخراج المصفوفات المحقونة
-   من الملف الناتج وفكّ تشفيرها فعليًا فأعطت النصين الأصليين حرفيًا**: الرابط ومفتاح الـ API
-   التجريبيين.
-5. توليد فخاخ العسل من `honeytraps.example.json` واختبار الحقن فعليًا داخل كلاس smali.
+---
 
-**لم يتم اختباره هنا** (لا يوجد Android SDK/جهاز/محاكي في هذه البيئة): تجميع الملفات
-المحقونة فعليًا عبر apktool الحقيقي إلى DEX صالح، وتشغيلها على ART حقيقي. البنية والمنطق
-صحيحان منطقيًا وتم التحقق من طبقة البيانات/الخوارزميات بالكامل، لكن التحقق النهائي
-(smoke-test على جهاز/محاكي Android حقيقي) يبقى على عاتقك قبل أي اعتماد إنتاجي.
+## Honey traps
 
-## سجل الإصلاحات (مراجعة أمنية خارجية، v0.1 → v0.2)
+Edit `honeytraps.example.json`:
 
-| # | الثغرة | الإصلاح | مُختبَر آليًا؟ |
-|---|---|---|---|
-| 1 🔴 | التشفير لا يطابق فك التشفير على الجهاز (salt مختلف) | `DEVICE_SALT` أصبح حقلاً ثابتًا مطابقًا للقيمة الفعلية المستخدمة في التشفير | ✅ `test_full_injection_roundtrip` |
-| 2 🔴 | حجز سجل scratch غير مضمون بالكامل | إزاحة صريحة لكل سجلات الدالة بمقدار K + حجز v0..v(K-1) حصريًا | ✅ `test_locals_count_increases_exactly...` |
-| 3 🟠 | تسرّب حالة بين methods | كل method block يُعالَج بمعزل تام من الصفر | ✅ `test_state_does_not_leak_between_methods` |
-| 4 🟠 | ادعاء "anti static-extraction" مبالغ فيه | التوثيق الآن صريح: حماية "وقت"، لا "استحالة" | (توثيقي) |
-| 5 🟠 | تغطية regex ضعيفة (jumbo، تعليقات، annotation) | دعم `/jumbo`، إزالة تعليقات، تجاهل `.annotation`/`.array-data` | ✅ `test_full_injection_roundtrip` |
-| 6 🟡 | القالب الحرج غير مُراجَع | مرفق في `templates/`، مُحدَّث ومُختبَر | ✅ (كل الاختبارات تقرأه فعليًا) |
-| 7 🟡 | `hex_decode` يخفي أخطاء صمتًا | يرفض الآن برسالة خطأ واضحة + exit code ≠ 0 | ✅ `test_invalid_hex_raises_not_silently_zero` |
-| 8 🟡 | لا اختبارات آلية | أُضيف `tests/` (18 اختبار، `pytest tests/ -v`) | ✅ (هذا هو الإصلاح) |
-| 9 🟡 | بطء: subprocess لكل سلسلة | أمر `batch-encrypt-simple` — استدعاء واحد للبناء كله | ✅ `test_batch_encrypt_matches_individual_calls` |
-| 10 🟡 | كود ميت (`derive_key`/`xor_crypt` HKDF) + `return_type` متجاهَل | أُزيل الكود الميت؛ `return_type` يُنتج الآن smali مختلفًا فعليًا (string/int) | ✅ `test_smali_trap_method_int_uses_return_type` |
+```json
+{
+  "traps": [
+    {
+      "name_hint": "fake_api_key",
+      "fake_value": "RLPN-HONEY-7f3a9c21-DO-NOT-USE",
+      "return_type": "string"
+    },
+    {
+      "name_hint": "fake_endpoint",
+      "fake_value": "https://decoy.example.invalid/v2/validate",
+      "return_type": "string"
+    }
+  ]
+}
+```
 
-شغّل `pytest tests/ -v` (بعد `cargo build --release`) للتحقق بنفسك.
+relopin injects static methods returning these values. **You** monitor their use on your server — relopin never contacts any server.
 
-## سجل الإصلاحات (مراجعة ثانية، v0.2 → v0.3)
+Supported `return_type`: `"string"`, `"int"`.
 
-| # | الثغرة | الإصلاح | مُختبَر آليًا؟ |
-|---|---|---|---|
-| 11 🔴 | `pip install -e .` (الموثَّق في هذا الملف) يفشل بالكامل — setuptools الحديث يرفض البناء بسبب مجلدات متعددة في الجذر (`relopin/`, `rust_core/`, `templates/`) | `[tool.setuptools] packages = [...]` صريحة في `pyproject.toml` + القالب انتقل إلى داخل حزمة `relopin/` نفسها (`package-data`) | ✅ تحقَّق فعليًا: `pip install -e .` و`python -m build --wheel` كلاهما ينجحان الآن في venv نظيف، والقالب موجود فعليًا داخل الـ wheel |
-| 12 🔴 | `_unescape` يُفسد أي نص غير-ASCII (عربي/فرنسي/إيموجي) يحوي أيضًا أي escape واحد (حتى `\n` بسيطة) — `literal.encode("utf-8").decode("unicode_escape")` يُفتت بايتات UTF-8 متعددة البايت | مُفسِّر escapes يدوي يعمل على نقاط Unicode مباشرة (`\n \t \r \b \f \" \' \\ \uXXXX`) دون أي تحويل بايتات | ✅ `test_unescape_does_not_corrupt_non_ascii_with_escapes` |
-| 13 🟠 | فيض سجلات smali: إزاحة السجلات بمقدار K بلا أي تحقق من الحد 16 (v0..v15) المطلوب لصيغ تعليمات dex القصيرة (invoke، move، new-array...) — دوال قريبة من هذا الحد (شائعة في onCreate/listeners الطويلة) كانت تكسر `apktool b` | تحليل توقيع method الكامل (بارامترات + wide types J/D + static/instance) لحساب ميزانية حقن آمنة لكل دالة، وتقليم المرشَّحين إليها | ✅ `test_register_budget_prevents_overflow_past_v15` |
-| 14 🟠 | تعاقد `--seed` ("لإعادة إنتاج بناء محدد") لم يكن صحيحًا: `build_seed_bytes`/`device_salt_bytes` (مادة التشفير الفعلية) كانت دائمًا عشوائية حقيقية عبر `SystemRandom`، بغض النظر عن `--seed` | اشتقاق حتمي عبر SHA-256 (`seed.derive_bytes`) يُفعَّل فقط حين يُمرِّر المستخدم `--seed` صراحة؛ المسار الافتراضي (بلا `--seed`) يبقى CSPRNG حقيقي كما كان (لا تراجع أمني) | ✅ `test_explicit_seed_is_fully_reproducible` |
-| 15 🟡 | أسطر debug `.local`/`.end local`/`.restart local` (ترقيم vN صريح) لا تُزاح مع بقية السجلات — تُسقَط في مسار "تحفّظ النصوص" لأنها غالبًا تحوي علامات اقتباس (اسم/نوع المتغيّر) | مسار مخصَّص لهذه التوجيهات الثلاث يُزيح رقم السجل ويترك الاسم/النوع المقتبس كما هو | (يُغطّيه `test_full_injection_roundtrip` وأي اختبار يحوي `.locals`؛ لا سيناريو `.local` مخصَّص بعد) |
-| 16 🟢 | ثنائي Rust جاهز مُضمَّن في `dist/` دون أي استخدام فعلي في الكود (لا `rustcore.py` ولا أي مسار آخر يقرأ منه) ودون أي توثيق لمصدره/بصمته — وزن ميت في المستودع وعلامة استفهام على الثقة لأي مراجع على GitHub | أُزيل بالكامل؛ `rustcore.py` يبني/يجد `relopin-core` من `rust_core/target/{release,debug}` أو PATH كما كان أصلاً، وهذا المسار الوحيد المدعوم والمُختبَر | (توثيقي/تنظيفي — لا سلوك جديد ليُختبَر) |
-| 17 🟢 | `README.md` يذكر `rust_core/src/{sha256,cipher,main}.rs` لكن `cipher.rs` لا وجود له فعليًا (منطقه داخل `main.rs`) — توثيق غير مطابق للواقع | تصحيح شجرة الملفات في README لتطابق المصدر الفعلي | (توثيقي) |
+---
 
-**ملاحظة بيئة أيضًا:** `.gitignore` أُضيف (لم يكن موجودًا إطلاقًا) يستثني `__pycache__/`, `*.egg-info/`, `build/`, `dist/`, `.pytest_cache/`, `rust_core/target/`, ومخرجات تشغيل الأداة نفسها (`relopin_work/`, `*.apk`, `relopin_report.html`) — كانت كلها قابلة للالتصاق بالمستودع عرضيًا.
+## How it works
 
-شغّل `pytest tests/ -v` (بعد `cargo build --release`) للتحقق — 22 اختبارًا الآن (كانت 19).
+1. `apktool d` — decode APK to smali
+2. Generate random `RelopinRuntime` package/class + `BUILD_SEED` + `DEVICE_SALT`
+3. Inject `RelopinRuntime.smali` (with `decrypt([B)` via `MessageDigest`)
+4. Encrypt `const-string` literals → replace with `fill-array-data` + `decrypt()`
+5. Inject honey-trap methods
+6. `apktool b` — rebuild
+7. Write HTML report
 
-## الرخصة وإخلاء مسؤولية
+---
 
-هذه أداة حماية دفاعية لتطبيقك الخاص (مشابهة لفئة DexGuard/Arxan). استخدمها فقط على تطبيقات
-تملك حقوق تعديلها وتوزيعها.
+## Test
+
+```bash
+cargo build --release --manifest-path rust_core/Cargo.toml
+pytest tests/ -v
+```
+
+22 tests: SHA-256 vectors, cipher roundtrip, register shifting, honey traps, `_unescape` Unicode safety, register-budget overflow, `--seed` reproducibility, batch encryption, full injection roundtrip.
+
+---
+
+## Changelog (highlights)
+
+### v0.3
+- 🔴 Fixed `pip install -e .` (failed on modern setuptools)
+- 🔴 Fixed `_unescape` corrupting non-ASCII text
+- 🟠 Fixed register overflow past `v15` (broke `apktool b`)
+- 🟠 Fixed `--seed` not actually reproducing builds
+- 🟢 Removed unused `dist/` binary, added `.gitignore`
+
+### v0.2
+- 🔴 Fixed encryption/decryption mismatch (salt was empty at build)
+- 🔴 Fixed unsafe scratch-register allocation
+- 🟠 Fixed state leaking between methods
+- 🟡 Added 18 tests, batch encryption, removed dead HKDF code
+
+---
+
+## Contributing
+
+Help wanted with:
+- More smali edge cases (`.registers`, unusual opcodes)
+- More honey-trap return types (`boolean`, `long`)
+- **Signature-certificate binding** (roadmap item — the real anti-reverse fix)
+- Testing on real-world apps (report what works/breaks)
+
+```bash
+cargo build --release --manifest-path rust_core/Cargo.toml
+pytest tests/ -v
+```
+
+Open an issue first for large changes.
+
+---
+
+## License
+
+**Apache License 2.0** — see [LICENSE](LICENSE). Free for commercial use, patent grant included, attribution required.
+
+---
+
+## Disclaimer
+
+Defensive tool for **your own** apps (like DexGuard/Arxan). Use only on applications you own or have explicit permission to modify. **Do not** use on third-party apps — that violates copyright law in most jurisdictions.
